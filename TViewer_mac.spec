@@ -56,7 +56,7 @@ app = BUNDLE(
     icon='icon_tviewer.icns',
     bundle_identifier='com.tachyon.tviewer',
     info_plist={
-        'CFBundleShortVersionString': '1.0.0',
+        'CFBundleShortVersionString': '1.0.3',
         'CFBundleName': 'TViewer',
         'NSHighResolutionCapable': True,
         'NSRequiresAquaSystemAppearance': False,
@@ -77,6 +77,18 @@ app = BUNDLE(
                     'public.heic',
                     'public.heif',
                     'org.webmproject.webp',
+                ],
+            },
+            {
+                'CFBundleTypeName': 'Archive',
+                'CFBundleTypeRole': 'Viewer',
+                'LSHandlerRank': 'Alternate',
+                'LSItemContentTypes': [
+                    'public.zip-archive',
+                    'public.tar-archive',
+                    'org.gnu.gnu-zip-archive',
+                    'public.bzip2-archive',
+                    'org.tukaani.xz-archive',
                 ],
             }
         ],

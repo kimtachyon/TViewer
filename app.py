@@ -2,11 +2,12 @@ import io
 import os
 import tkinter as tk
 from tkinter import filedialog, messagebox
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from PIL import Image
 from PIL.ExifTags import TAGS, IFD
 
 from loader import ImageLoader, SUPPORTED
+from archive import ArchiveReader, is_archive, ARCHIVE_EXTS
 from theme import *
 
 
@@ -48,6 +49,7 @@ class TViewerApp:
         self._photo = None
         self._panel_visible: bool = True
         self._resize_job = None
+        self._archive: ArchiveReader | None = None
 
         self._drag_start_x = 0
         self._drag_start_y = 0
@@ -177,6 +179,7 @@ class TViewerApp:
     # ── 키 바인딩 ────────────────────────────────────────────
 
     def _bind_keys(self):
+        self.root.bind("<Escape>",    lambda e: self.root.destroy())
         self.root.bind("<Left>",      lambda e: self._prev())
         self.root.bind("<Right>",     lambda e: self._next())
         self.root.bind("<space>",     lambda e: (self._next(), "break"))
@@ -190,16 +193,30 @@ class TViewerApp:
     # ── 파일 열기 ────────────────────────────────────────────
 
     def _open_dialog(self):
-        exts = " ".join(f"*{e}" for e in SUPPORTED)
+        img_exts = " ".join(f"*{e}" for e in SUPPORTED)
+        arc_exts = " ".join(f"*{e}" for e in ARCHIVE_EXTS)
         path = filedialog.askopenfilename(
             parent=self.root,
             title="이미지 열기",
-            filetypes=[("이미지 파일", exts), ("모든 파일", "*.*")])
+            filetypes=[("이미지 파일", img_exts),
+                       ("압축 파일", arc_exts),
+                       ("모든 파일", "*.*")])
         if path:
             self._open_path(path)
 
     def _open_path(self, path: str):
         p = Path(path).resolve()
+
+        # 압축 파일이면 아카이브 모드로 전환
+        if is_archive(p):
+            self._open_archive(p)
+            return
+
+        # 기존 아카이브 정리
+        if self._archive:
+            self._archive.close()
+            self._archive = None
+
         folder = p.parent
         self._images = sorted(
             [f for f in folder.iterdir()
@@ -209,6 +226,26 @@ class TViewerApp:
             self._index = self._images.index(p)
         except ValueError:
             self._index = 0
+        self._img_x = self._img_y = 0
+        self._show_image()
+
+    def _open_archive(self, archive_path: Path):
+        """압축 파일을 폴더처럼 열어 내부 이미지 탐색."""
+        if self._archive:
+            self._archive.close()
+        try:
+            self._archive = ArchiveReader(archive_path)
+        except Exception as e:
+            messagebox.showerror("오류", f"압축 파일을 열 수 없습니다.\n{e}")
+            return
+        if not self._archive.entries:
+            messagebox.showinfo("알림", "압축 파일에 이미지가 없습니다.")
+            self._archive.close()
+            self._archive = None
+            return
+        # 아카이브 엔트리 이름을 _images에 저장 (문자열을 Path로 감싸서 통일)
+        self._images = [Path(name) for name in self._archive.entries]
+        self._index = 0
         self._img_x = self._img_y = 0
         self._show_image()
 
@@ -233,10 +270,19 @@ class TViewerApp:
             return
 
         path = self._images[self._index]
-        self.root.title(
-            f"TViewer  —  {path.name}  ({self._index + 1} / {len(self._images)})")
+        display_name = PurePosixPath(path).name if self._archive else path.name
+        if self._archive:
+            self.root.title(
+                f"TViewer  —  {self._archive.path.name} / {display_name}"
+                f"  ({self._index + 1} / {len(self._images)})")
+        else:
+            self.root.title(
+                f"TViewer  —  {display_name}  ({self._index + 1} / {len(self._images)})")
 
-        img = self._loader.get(path)
+        if self._archive:
+            img = self._archive.get_image(str(path))
+        else:
+            img = self._loader.get(path)
         if img is None:
             self._canvas.create_text(
                 (self._canvas.winfo_width() or 640) // 2,
@@ -347,7 +393,7 @@ class TViewerApp:
     # ── 삭제 ─────────────────────────────────────────────────
 
     def _delete_current(self):
-        if not self._images:
+        if not self._images or self._archive:
             return
         path = self._images[self._index]
         if not messagebox.askyesno(
@@ -373,7 +419,7 @@ class TViewerApp:
     # ── 프리로드 ─────────────────────────────────────────────
 
     def _preload_neighbors(self):
-        if not self._images:
+        if not self._images or self._archive:
             return
         n = len(self._images)
         targets = [
@@ -410,32 +456,41 @@ class TViewerApp:
 
         # 파일 정보
         section("파일")
-        row("이름", path.name)
-        try:
-            size_b = path.stat().st_size
-            size_str = (f"{size_b / 1_048_576:.1f} MB"
-                        if size_b >= 1_048_576
-                        else f"{size_b / 1024:.0f} KB")
-        except Exception:
-            size_str = "—"
+        display_name = PurePosixPath(path).name if self._archive else path.name
+        row("이름", display_name)
+        if self._archive:
+            row("압축파일", self._archive.path.name)
+            size_b = self._archive.get_entry_size(str(path))
+            if size_b is not None:
+                size_str = (f"{size_b / 1_048_576:.1f} MB"
+                            if size_b >= 1_048_576
+                            else f"{size_b / 1024:.0f} KB")
+            else:
+                size_str = "—"
+        else:
+            try:
+                size_b = path.stat().st_size
+                size_str = (f"{size_b / 1_048_576:.1f} MB"
+                            if size_b >= 1_048_576
+                            else f"{size_b / 1024:.0f} KB")
+            except Exception:
+                size_str = "—"
         row("크기", size_str)
         row("해상도", f"{img.width} × {img.height} px")
-        row("형식", img.format or path.suffix.upper().lstrip("."))
+        row("형식", img.format or PurePosixPath(path).suffix.upper().lstrip("."))
         row("위치", f"{self._index + 1} / {len(self._images)}")
 
         # EXIF — 기본 태그 + ExifIFD (카메라 설정값)
         exif_data = {}
         try:
-            with Image.open(path) as _raw:
-                _base = _raw.getexif()
-                for tag_id, val in _base.items():
+            _base = img.getexif()
+            for tag_id, val in _base.items():
+                exif_data[TAGS.get(tag_id, tag_id)] = val
+            try:
+                for tag_id, val in _base.get_ifd(IFD.Exif).items():
                     exif_data[TAGS.get(tag_id, tag_id)] = val
-                # ExifIFD: ISO, 조리개, 셔터 등 카메라 설정값
-                try:
-                    for tag_id, val in _base.get_ifd(IFD.Exif).items():
-                        exif_data[TAGS.get(tag_id, tag_id)] = val
-                except Exception:
-                    pass
+            except Exception:
+                pass
         except Exception:
             pass
 
