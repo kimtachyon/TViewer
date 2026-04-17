@@ -53,6 +53,9 @@ class TViewerApp:
 
         self._drag_start_x = 0
         self._drag_start_y = 0
+        self._click_x = 0
+        self._click_y = 0
+        self._dragged = False
         self._img_x = 0
         self._img_y = 0
 
@@ -83,11 +86,11 @@ class TViewerApp:
         self._canvas_wrap = tk.Frame(self._main, bg=BG)
         self._canvas_wrap.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
+        self._build_toolbar()  # pack BOTTOM first so canvas gets remaining space
+
         self._canvas = tk.Canvas(self._canvas_wrap, bg=BG,
                                  highlightthickness=0, cursor="arrow")
         self._canvas.pack(fill=tk.BOTH, expand=True)
-
-        self._build_toolbar()
         self._build_panel()
 
         self._toggle_lbl = tk.Label(
@@ -99,34 +102,38 @@ class TViewerApp:
 
         self._canvas.bind("<Configure>",      self._on_canvas_resize)
         self._canvas.bind("<Double-Button-1>", lambda e: self._toggle_fit())
-        self._canvas.bind("<ButtonPress-1>",   self._drag_start)
+        self._canvas.bind("<ButtonPress-1>",   self._on_canvas_click)
         self._canvas.bind("<B1-Motion>",       self._drag_move)
+        self._canvas.bind("<ButtonRelease-1>", self._on_canvas_release)
         self._canvas.bind("<MouseWheel>",      self._on_scroll)
 
     def _build_toolbar(self):
         TBARBG = "#252527"
         self._toolbar = tk.Frame(self._canvas_wrap, bg=TBARBG,
-                                 padx=6, pady=5)
-        self._toolbar.place(relx=0.5, rely=1.0, anchor="s", y=-18)
+                                 padx=6, pady=3)
+        self._toolbar.pack(side=tk.BOTTOM, fill=tk.X)
+
+        inner = tk.Frame(self._toolbar, bg=TBARBG)
+        inner.pack()
 
         self._btn_prev = _make_icon_btn(
-            self._toolbar, "◀", self._prev,
-            bg=TBARBG, fg=TEXT, hover_bg=BG3, font=("Helvetica Neue", 14))
+            inner, "◀", self._prev,
+            bg=TBARBG, fg=TEXT, hover_bg=BG3, font=("Helvetica Neue", 11), pady=3)
         self._btn_prev.pack(side=tk.LEFT, padx=2)
 
         self._btn_100 = _make_icon_btn(
-            self._toolbar, "100%", self._zoom_100,
-            bg=TBARBG, fg=TEXT2, hover_bg=BG3, font=("Helvetica Neue", 11))
+            inner, "100%", self._zoom_100,
+            bg=TBARBG, fg=TEXT2, hover_bg=BG3, font=("Helvetica Neue", 10), pady=3)
         self._btn_100.pack(side=tk.LEFT, padx=2)
 
         self._btn_fit = _make_icon_btn(
-            self._toolbar, "맞춤", self._zoom_fit,
-            bg=TBARBG, fg=TEXT2, hover_bg=BG3, font=("Helvetica Neue", 11))
+            inner, "맞춤", self._zoom_fit,
+            bg=TBARBG, fg=TEXT2, hover_bg=BG3, font=("Helvetica Neue", 10), pady=3)
         self._btn_fit.pack(side=tk.LEFT, padx=2)
 
         self._btn_next = _make_icon_btn(
-            self._toolbar, "▶", self._next,
-            bg=TBARBG, fg=TEXT, hover_bg=BG3, font=("Helvetica Neue", 14))
+            inner, "▶", self._next,
+            bg=TBARBG, fg=TEXT, hover_bg=BG3, font=("Helvetica Neue", 11), pady=3)
         self._btn_next.pack(side=tk.LEFT, padx=2)
 
         self._update_toolbar_state()
@@ -253,10 +260,12 @@ class TViewerApp:
 
     def _show_image(self):
         self._canvas.delete("all")
+        cw = self._canvas.winfo_width()
+        ch = self._canvas.winfo_height()
+        if cw < 10 or ch < 10:
+            return
 
         if not self._images:
-            cw = self._canvas.winfo_width() or 640
-            ch = self._canvas.winfo_height() or 400
             self._canvas.create_text(
                 cw // 2, ch // 2 - 28,
                 text="이미지를 열어주세요",
@@ -285,13 +294,10 @@ class TViewerApp:
             img = self._loader.get(path)
         if img is None:
             self._canvas.create_text(
-                (self._canvas.winfo_width() or 640) // 2,
-                (self._canvas.winfo_height() or 400) // 2,
+                cw // 2, ch // 2,
                 text="이미지를 열 수 없습니다", fill=TEXT2, font=FONT)
             return
 
-        cw = self._canvas.winfo_width() or 1280
-        ch = self._canvas.winfo_height() or 800
         iw, ih = img.size
 
         if self._fit_mode:
@@ -368,13 +374,29 @@ class TViewerApp:
 
     # ── 드래그 (100% 모드 패닝) ──────────────────────────────
 
-    def _drag_start(self, event):
+    def _on_canvas_click(self, event):
+        self._click_x = event.x
+        self._click_y = event.y
+        self._dragged = False
         if not self._fit_mode:
             self._drag_start_x = event.x
             self._drag_start_y = event.y
             self._canvas.config(cursor="fleur")
 
+    def _on_canvas_release(self, event):
+        self._canvas.config(cursor="arrow")
+        if self._dragged or not self._images:
+            return
+        cw = self._canvas.winfo_width()
+        if cw < 10:
+            return
+        if self._click_x < cw / 3:
+            self._prev()
+        elif self._click_x > cw * 2 / 3:
+            self._next()
+
     def _drag_move(self, event):
+        self._dragged = True
         if not self._fit_mode and self._images:
             dx = event.x - self._drag_start_x
             dy = event.y - self._drag_start_y
