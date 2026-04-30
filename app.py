@@ -58,6 +58,7 @@ class TViewerApp:
         self._dragged = False
         self._img_x = 0
         self._img_y = 0
+        self._edge_msg_job = None
 
         self._build_ui()
         self._bind_keys()
@@ -336,16 +337,43 @@ class TViewerApp:
     def _prev(self):
         if not self._images:
             return
-        self._index = (self._index - 1) % len(self._images)
+        if self._index <= 0:
+            self._show_edge_message("첫 이미지입니다")
+            return
+        self._index -= 1
         self._img_x = self._img_y = 0
         self._show_image()
 
     def _next(self):
         if not self._images:
             return
-        self._index = (self._index + 1) % len(self._images)
+        if self._index >= len(self._images) - 1:
+            self._show_edge_message("마지막 이미지입니다")
+            return
+        self._index += 1
         self._img_x = self._img_y = 0
         self._show_image()
+
+    def _show_edge_message(self, text: str):
+        self._canvas.delete("edge_msg")
+        cw = self._canvas.winfo_width()
+        ch = self._canvas.winfo_height()
+        if cw < 10 or ch < 10:
+            return
+        cx, cy = cw // 2, ch // 2
+        font = ("Helvetica Neue", 18, "bold")
+        text_id = self._canvas.create_text(
+            cx, cy, text=text, fill=TEXT, font=font, tags="edge_msg")
+        bx1, by1, bx2, by2 = self._canvas.bbox(text_id)
+        pad_x, pad_y = 28, 16
+        rect_id = self._canvas.create_rectangle(
+            bx1 - pad_x, by1 - pad_y, bx2 + pad_x, by2 + pad_y,
+            fill=BG3, outline=ACCENT, width=2, tags="edge_msg")
+        self._canvas.tag_raise(text_id, rect_id)
+        if self._edge_msg_job:
+            self.root.after_cancel(self._edge_msg_job)
+        self._edge_msg_job = self.root.after(
+            1000, lambda: self._canvas.delete("edge_msg"))
 
     def _zoom_fit(self):
         self._fit_mode = True

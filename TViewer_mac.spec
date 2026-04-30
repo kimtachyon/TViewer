@@ -56,7 +56,7 @@ app = BUNDLE(
     icon='icon_tviewer.icns',
     bundle_identifier='com.tachyon.tviewer',
     info_plist={
-        'CFBundleShortVersionString': '1.0.4',
+        'CFBundleShortVersionString': '1.0.5',
         'CFBundleName': 'TViewer',
         'NSHighResolutionCapable': True,
         'NSRequiresAquaSystemAppearance': False,

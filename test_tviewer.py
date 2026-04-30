@@ -199,14 +199,40 @@ class TestAppNavigation(unittest.TestCase):
         self.app._next()
         self.assertEqual(self.app._index, 1)
 
-    def test_prev_wraps(self):
-        self.app._prev()
-        self.assertEqual(self.app._index, 4)
+    def _force_canvas_size(self, w=900, h=600):
+        """테스트 환경에서 winfo_width/height를 강제 주입."""
+        c = self.app._canvas
+        c.config(width=w, height=h)
+        self.root.update_idletasks()
+        if c.winfo_width() < 10:
+            orig_w, orig_h = c.winfo_width, c.winfo_height
+            c.winfo_width = lambda: w
+            c.winfo_height = lambda: h
+            self.addCleanup(lambda: (setattr(c, 'winfo_width', orig_w),
+                                      setattr(c, 'winfo_height', orig_h)))
 
-    def test_next_wraps(self):
+    def test_prev_at_first_stays(self):
+        """첫 이미지에서 prev → 인덱스 유지 + edge_msg 표시."""
+        self._force_canvas_size()
+        self.app._index = 0
+        self.app._prev()
+        self.assertEqual(self.app._index, 0)
+        self.assertGreater(len(self.app._canvas.find_withtag("edge_msg")), 0)
+
+    def test_next_at_last_stays(self):
+        """마지막 이미지에서 next → 인덱스 유지 + edge_msg 표시."""
+        self._force_canvas_size()
         self.app._index = 4
         self.app._next()
-        self.assertEqual(self.app._index, 0)
+        self.assertEqual(self.app._index, 4)
+        self.assertGreater(len(self.app._canvas.find_withtag("edge_msg")), 0)
+
+    def test_next_does_not_wrap(self):
+        """next at last must NOT wrap to 0 (regression)."""
+        self._force_canvas_size()
+        self.app._index = 4
+        self.app._next()
+        self.assertNotEqual(self.app._index, 0)
 
     def _simulate_click(self, x, y):
         press = MagicMock(); press.x = x; press.y = y
