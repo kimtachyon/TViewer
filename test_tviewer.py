@@ -195,6 +195,18 @@ class TestAppNavigation(unittest.TestCase):
         self.assertEqual(len(self.app._images), 5)
         self.assertEqual(self.app._index, 0)
 
+    def test_appledouble_excluded(self):
+        """._FILENAME.jpg 같은 AppleDouble 파일이 _images에 들어가면 안 됨."""
+        # 정상 이미지와 동일 폴더에 ._ 접두 파일 생성
+        for i in range(3):
+            (self.tmpdir / f'._img{i:02d}.png').write_bytes(b'fake')
+        self.app._open_path(str(self.paths[0]))
+        names = [p.name for p in self.app._images]
+        for n in names:
+            self.assertFalse(n.startswith('.'),
+                             f'dotfile leaked into _images: {n}')
+        self.assertEqual(len(self.app._images), 5)
+
     def test_next(self):
         self.app._next()
         self.assertEqual(self.app._index, 1)

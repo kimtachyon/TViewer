@@ -59,6 +59,10 @@ class TViewerApp:
         self._img_x = 0
         self._img_y = 0
         self._edge_msg_job = None
+        self._edge_msg_text: str | None = None
+        self._edge_msg_photo = None
+        self._display_pil: Image.Image | None = None
+        self._display_rect: tuple[int, int, int, int] | None = None
 
         self._build_ui()
         self._bind_keys()
@@ -226,9 +230,13 @@ class TViewerApp:
             self._archive = None
 
         folder = p.parent
+        # macOS AppleDouble(._FILENAME) 등 숨김 파일 제외 — Finder에 안 보이지만
+        # 같은 확장자라 잡혀 들어가면 인덱스가 꼬이고 로딩도 실패함.
         self._images = sorted(
             [f for f in folder.iterdir()
-             if f.suffix.lower() in SUPPORTED and f.is_file()],
+             if f.suffix.lower() in SUPPORTED
+                and f.is_file()
+                and not f.name.startswith('.')],
             key=lambda f: f.name.lower())
         try:
             self._index = self._images.index(p)
@@ -261,6 +269,8 @@ class TViewerApp:
 
     def _show_image(self):
         self._canvas.delete("all")
+        self._display_pil = None
+        self._display_rect = None
         cw = self._canvas.winfo_width()
         ch = self._canvas.winfo_height()
         if cw < 10 or ch < 10:
@@ -277,6 +287,7 @@ class TViewerApp:
                 font=FONT_BOLD, padx=20, pady=10)
             self._canvas.create_window(cw // 2, ch // 2 + 24, window=open_btn)
             self.root.title("TViewer")
+            self._redraw_edge_message()
             return
 
         path = self._images[self._index]
@@ -297,6 +308,7 @@ class TViewerApp:
             self._canvas.create_text(
                 cw // 2, ch // 2,
                 text="이미지를 열 수 없습니다", fill=TEXT2, font=FONT)
+            self._redraw_edge_message()
             return
 
         iw, ih = img.size
@@ -317,10 +329,13 @@ class TViewerApp:
 
         self._photo = self._to_photo(display)
         self._canvas.create_image(x, y, image=self._photo, anchor=tk.CENTER)
+        self._display_pil = display
+        self._display_rect = (x - nw // 2, y - nh // 2, nw, nh)
 
         self._update_toolbar_state()
         self._update_info(path, img)
         self._preload_neighbors()
+        self._redraw_edge_message()
 
     @staticmethod
     def _to_photo(img: Image.Image) -> tk.PhotoImage:
@@ -355,25 +370,66 @@ class TViewerApp:
         self._show_image()
 
     def _show_edge_message(self, text: str):
+        self._edge_msg_text = text
+        self._redraw_edge_message()
+        if self._edge_msg_job:
+            self.root.after_cancel(self._edge_msg_job)
+        self._edge_msg_job = self.root.after(1000, self._clear_edge_message)
+
+    def _clear_edge_message(self):
+        self._edge_msg_text = None
+        self._edge_msg_job = None
+        self._edge_msg_photo = None
+        self._canvas.delete("edge_msg")
+
+    def _redraw_edge_message(self):
+        """edge_msg를 현재 표시된 이미지 위에 진짜 반투명으로 그림.
+        Tk Aqua가 stipple/alpha 합성을 무시하므로 PIL로 직접 합성."""
+        text = self._edge_msg_text
+        if not text:
+            return
         self._canvas.delete("edge_msg")
         cw = self._canvas.winfo_width()
         ch = self._canvas.winfo_height()
         if cw < 10 or ch < 10:
             return
         cx, cy = cw // 2, ch // 2
-        font = ("Helvetica Neue", 18, "bold")
-        text_id = self._canvas.create_text(
+
+        font = ("Helvetica Neue", 14, "bold")
+        tmp = self._canvas.create_text(0, -10000, text=text, font=font)
+        bx1, by1, bx2, by2 = self._canvas.bbox(tmp)
+        self._canvas.delete(tmp)
+        tw, th = bx2 - bx1, by2 - by1
+        pad_x, pad_y = 22, 12
+        box_w = tw + 2 * pad_x
+        box_h = th + 2 * pad_y
+        box_left = cx - box_w // 2
+        box_top = cy - box_h // 2
+
+        bg_rgb = tuple(int(BG[i:i+2], 16) for i in (1, 3, 5))
+        box_img = Image.new("RGB", (box_w, box_h), bg_rgb)
+
+        if self._display_pil is not None and self._display_rect is not None:
+            ix, iy, iw, ih = self._display_rect
+            ol = max(box_left, ix)
+            ot = max(box_top, iy)
+            or_ = min(box_left + box_w, ix + iw)
+            ob = min(box_top + box_h, iy + ih)
+            if or_ > ol and ob > ot:
+                crop = self._display_pil.crop(
+                    (ol - ix, ot - iy, or_ - ix, ob - iy))
+                if crop.mode != "RGB":
+                    crop = crop.convert("RGB")
+                box_img.paste(crop, (ol - box_left, ot - box_top))
+
+        dark = Image.new("RGB", (box_w, box_h), (0, 0, 0))
+        box_img = Image.blend(box_img, dark, 0.5)
+
+        self._edge_msg_photo = self._to_photo(box_img)
+        self._canvas.create_image(
+            cx, cy, image=self._edge_msg_photo, tags="edge_msg")
+        self._canvas.create_text(
             cx, cy, text=text, fill=TEXT, font=font, tags="edge_msg")
-        bx1, by1, bx2, by2 = self._canvas.bbox(text_id)
-        pad_x, pad_y = 28, 16
-        rect_id = self._canvas.create_rectangle(
-            bx1 - pad_x, by1 - pad_y, bx2 + pad_x, by2 + pad_y,
-            fill=BG3, outline=ACCENT, width=2, tags="edge_msg")
-        self._canvas.tag_raise(text_id, rect_id)
-        if self._edge_msg_job:
-            self.root.after_cancel(self._edge_msg_job)
-        self._edge_msg_job = self.root.after(
-            1000, lambda: self._canvas.delete("edge_msg"))
 
     def _zoom_fit(self):
         self._fit_mode = True
