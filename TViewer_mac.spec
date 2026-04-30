@@ -67,7 +67,7 @@ app = BUNDLE(
             {
                 'CFBundleTypeName': 'Image',
                 'CFBundleTypeRole': 'Viewer',
-                'LSHandlerRank': 'Alternate',
+                'LSHandlerRank': 'Default',
                 'LSItemContentTypes': [
                     'public.jpeg',
                     'public.png',
@@ -82,7 +82,7 @@ app = BUNDLE(
             {
                 'CFBundleTypeName': 'Archive',
                 'CFBundleTypeRole': 'Viewer',
-                'LSHandlerRank': 'Alternate',
+                'LSHandlerRank': 'Default',
                 'LSItemContentTypes': [
                     'public.zip-archive',
                     'public.tar-archive',

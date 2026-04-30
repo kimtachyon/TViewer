@@ -8,14 +8,18 @@ Python Tkinter 기반 macOS 이미지 뷰어. 폴더/압축파일 내 이미지 
 # 개발 실행
 /opt/homebrew/bin/python3.12 main.py
 
-# 배포 빌드 (dist/TViewer.app 생성)
-/opt/homebrew/bin/python3.12 -m PyInstaller TViewer_mac.spec --clean --noconfirm
+# 배포 빌드 + /Applications 설치 (권장)
+./build.sh
 
 # 테스트
 /opt/homebrew/bin/python3.12 -u test_tviewer.py
 ```
 
+`build.sh`는 PyInstaller 빌드 → `/Applications/TViewer.app`으로 이동 → quarantine 속성 제거 → LaunchServices 재등록까지 처리. PyInstaller만 직접 호출하려면 `/opt/homebrew/bin/python3.12 -m PyInstaller TViewer_mac.spec --clean --noconfirm`.
+
 **빌드 시 반드시 Homebrew Python 3.12 사용.** 시스템 `python3`(3.9/Tk 8.5)로 빌드하면 Aqua 백엔드가 커스텀 bg/fg를 무시하여 화면이 비어보임.
+
+**Finder 기본 앱 매핑**은 `duti`로 한 번만 설정 (bundle id `com.tachyon.tviewer` 기반이라 빌드/이동 후에도 유지됨). spec의 `LSHandlerRank`는 `Default`여야 함 — `Alternate`면 미리보기에 우선권을 양보함.
 
 ## 핵심 규칙
 
